@@ -298,11 +298,12 @@ custom_js = '''
     #start-btn { top: 35%; background-color: #4CAF50; }
     #stop-btn { top: 41%; background-color: #f44336; }
     #prev-btn { top: 47%; background-color: #2196F3; }
+    #reset-btn { top: 53%; background-color: #9C27B0; }
     .control-btn:hover { opacity: 0.8; }
     .instruction-text {
         position: fixed;
         right: 20px;
-        top: 54%;
+        top: 60%;
         font-size: 12px;
         color: #555;
         text-align: right;
@@ -314,6 +315,7 @@ custom_js = '''
 <button id="start-btn" class="control-btn">시작 (Start)</button>
 <button id="stop-btn" class="control-btn">정지 (Stop)</button>
 <button id="prev-btn" class="control-btn">전단계로</button>
+<button id="reset-btn" class="control-btn">맨 앞으로</button>
 <div class="instruction-text">
     화면 클릭시 다음 단계로
 </div>
@@ -380,6 +382,16 @@ custom_js = '''
                 isPlaying = false;
             }
             goToFrame(currentFrame - 1, plotDiv);
+        });
+
+        // 맨 앞으로 버튼
+        document.getElementById('reset-btn').addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (isPlaying) {
+                clearInterval(playInterval);
+                isPlaying = false;
+            }
+            goToFrame(0, plotDiv);
         });
 
         if (plotDiv) {

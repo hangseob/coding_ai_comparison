@@ -172,11 +172,13 @@ if st.button("🚀 Run Bootstrapping", use_container_width=True):
         #start-btn { top: 35%; background-color: #4CAF50; }
         #stop-btn { top: 41%; background-color: #f44336; }
         #prev-btn { top: 47%; background-color: #2196F3; }
-        .instruction-text { position: fixed; right: 20px; top: 54%; font-size: 12px; color: #555; text-align: right; z-index: 1000; line-height: 1.5; font-weight: bold; }
+        #reset-btn { top: 53%; background-color: #9C27B0; }
+        .instruction-text { position: fixed; right: 20px; top: 60%; font-size: 12px; color: #555; text-align: right; z-index: 1000; line-height: 1.5; font-weight: bold; }
     </style>
     <button id="start-btn" class="control-btn">시작 (Start)</button>
     <button id="stop-btn" class="control-btn">정지 (Stop)</button>
     <button id="prev-btn" class="control-btn">전단계로</button>
+    <button id="reset-btn" class="control-btn">맨 앞으로</button>
     <div class="instruction-text">화면 클릭시 다음 단계로</div>
     <script>
         var currentFrame = 0;
@@ -211,6 +213,11 @@ if st.button("🚀 Run Bootstrapping", use_container_width=True):
                 e.stopPropagation();
                 if (isPlaying) { clearInterval(playInterval); isPlaying = false; }
                 goToFrame(currentFrame - 1, plotDiv);
+            });
+            document.getElementById('reset-btn').addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (isPlaying) { clearInterval(playInterval); isPlaying = false; }
+                goToFrame(0, plotDiv);
             });
             if (plotDiv) {
                 plotDiv.addEventListener('click', function(e) {
