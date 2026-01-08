@@ -6,30 +6,23 @@ from scipy.optimize import newton
 
 # 1. 입력 데이터 설정
 market_tenors = np.array([1, 2, 3, 5])
-market_rates = np.array([0.02, 0.03, 0.04, 0.05])
+market_rates = np.array([0.10, 0.15, 0.20, 0.30])
 dt = 0.25
 
-def get_df(t, nodes, forwards):
-    """t시점의 Discount Factor 계산"""
+def get_df(t, nodes, dfs):
+    """t시점의 Discount Factor 계산 (Linear on Log DF)"""
     if t <= 0: return 1.0
-    total_integral = 0
-    prev_node = 0
-    for i in range(len(forwards)):
-        node = nodes[i]
-        f = forwards[i]
-        if t <= node:
-            total_integral += f * (t - prev_node)
-            return np.exp(-total_integral)
-        else:
-            total_integral += f * (node - prev_node)
-            prev_node = node
-    total_integral += forwards[-1] * (t - prev_node)
-    return np.exp(-total_integral)
+    # nodes와 dfs는 0시점(t=0, DF=1.0)을 포함해야 함
+    log_dfs = np.log(dfs)
+    interp_log_df = np.interp(t, nodes, log_dfs)
+    return np.exp(interp_log_df)
 
 # --- [Phase 1] 부트스트래핑 및 데이터 축적 (DataFrame) ---
 print("Phase 1: Bootstrapping and accumulating data...")
 rows_list = []
 temp_forwards = []
+temp_dfs = [1.0]   # t=0일 때 DF=1.0
+temp_nodes = [0.0] # t=0 노드 포함
 
 for step_idx in range(len(market_tenors)):
     target_tenor = market_tenors[step_idx]
@@ -38,12 +31,18 @@ for step_idx in range(len(market_tenors)):
     
     def objective(f_current):
         f_val = float(f_current)
-        current_fwd_set = temp_forwards + [f_val]
-        current_nodes = market_tenors[:len(current_fwd_set)].tolist()
+        # 현재 시도하는 f_val에 따른 target_tenor에서의 DF 계산
+        df_prev = temp_dfs[-1]
+        t_prev = temp_nodes[-1]
+        df_target = df_prev * np.exp(-f_val * (target_tenor - t_prev))
+        
+        current_dfs = temp_dfs + [df_target]
+        current_nodes = temp_nodes + [target_tenor]
         
         payment_times = np.arange(dt, target_tenor + 1e-9, dt)
-        fixed_leg = sum([swap_rate * dt * get_df(t, current_nodes, current_fwd_set) for t in payment_times])
-        df_end = get_df(target_tenor, current_nodes, current_fwd_set)
+        # Linear on Log DF 방식으로 중간 DF들 계산
+        fixed_leg = sum([swap_rate * dt * get_df(t, current_nodes, current_dfs) for t in payment_times])
+        df_end = current_dfs[-1]
         fixed_bond = fixed_leg + (1.0 * df_end)
         
         iter_context['count'] += 1
@@ -54,17 +53,58 @@ for step_idx in range(len(market_tenors)):
             'Target_Tenor': target_tenor,
             'Fwd_Attempted': f_val,
             'Fixed_Bond_Value': fixed_bond,
-            'All_Fwds': list(current_fwd_set)
+            'All_Fwds': temp_forwards + [f_val],
+            'All_Dfs': list(current_dfs),
+            'All_Nodes': list(current_nodes)
         })
         return fixed_bond - 1.0
 
     f_sol = newton(objective, market_rates[step_idx], tol=1e-7)
     temp_forwards.append(f_sol)
+    # 확정된 DF와 노드 추가
+    df_prev = temp_dfs[-1]
+    t_prev = temp_nodes[-1]
+    temp_dfs.append(df_prev * np.exp(-f_sol * (target_tenor - t_prev)))
+    temp_nodes.append(target_tenor)
 
 bootstrapping_df = pd.DataFrame(rows_list)
 
-# --- [Phase 2] Plotly 인터랙티브 시각화 생성 ---
-print("Phase 2: Creating Interactive HTML...")
+# --- [Phase 2] Plotly 인터랙티브 시각화 준비 ---
+# 엑셀과 동일한 시간 그리드 생성 (0.05 간격 고정)
+fixed_t_grid = np.linspace(0, max(market_tenors), 101)
+
+# --- [Phase 3] 엑셀 데이터 저장 ---
+print("Phase 3: Saving data to Excel...")
+final_row = bootstrapping_df.iloc[-1]
+final_nodes = final_row['All_Nodes']
+final_dfs = final_row['All_Dfs']
+
+# 차트에 그려지는 곡선 포인트 (100개) 생성
+t_fine = np.linspace(0, max(market_tenors), 101)
+df_fine = [get_df(t, final_nodes, final_dfs) for t in t_fine]
+log_df_fine = [np.log(d) for d in df_fine]
+
+curve_export_df = pd.DataFrame({
+    'Time(T)': t_fine,
+    'Discount_Factor': df_fine,
+    'Log_DF': log_df_fine
+})
+
+# 리스트 형태의 컬럼은 엑셀 저장 시 문자열로 변환
+export_iterations_df = bootstrapping_df.copy()
+for col in ['All_Fwds', 'All_Dfs', 'All_Nodes']:
+    export_iterations_df[col] = export_iterations_df[col].apply(lambda x: str(x))
+
+try:
+    with pd.ExcelWriter('bootstrapping_data.xlsx', engine='openpyxl') as writer:
+        export_iterations_df.to_excel(writer, sheet_name='Iteration_History', index=False)
+        curve_export_df.to_excel(writer, sheet_name='Final_DF_Curve', index=False)
+    print("Excel file 'bootstrapping_data.xlsx' has been created.")
+except Exception as e:
+    print(f"Excel save failed: {e}. (Make sure 'openpyxl' is installed)")
+
+# --- [Phase 4] Plotly 인터랙티브 시각화 생성 ---
+print("Phase 4: Creating Interactive HTML...")
 
 fig = make_subplots(
     rows=3, cols=1, 
@@ -78,23 +118,26 @@ frames = []
 for i in range(len(bootstrapping_df)):
     row = bootstrapping_df.iloc[i]
     fwds = row['All_Fwds']
-    nodes = market_tenors[:len(fwds)].tolist()
+    dfs = row['All_Dfs']
+    nodes = row['All_Nodes']
     
     # 1. Fwd Data
-    fwd_x = [0] + nodes
+    current_market_nodes = market_tenors[:len(fwds)].tolist()
+    fwd_x = [0] + current_market_nodes
     fwd_y = fwds + [fwds[-1]]
     
     # 텍스트 위치 계산 (각 구간의 중앙)
     text_x = []
     prev_node = 0
-    for node in nodes:
+    for node in current_market_nodes:
         text_x.append((prev_node + node) / 2)
         prev_node = node
     text_y = fwds
     
-    # 2. DF Data (항상 0부터 시작)
-    t_range = np.linspace(0, row['Target_Tenor'], 100)
-    df_y = [get_df(t, nodes, fwds) for t in t_range]
+    # 2. DF Data (엑셀과 동일한 고정 그리드 사용)
+    # 현재 타겟 만기 이하의 노드들만 필터링하여 일관성 유지
+    t_display = fixed_t_grid[fixed_t_grid <= row['Target_Tenor'] + 1e-9]
+    df_y = [get_df(t, nodes, dfs) for t in t_display]
     
     # 3. Cash Flow Data
     pay_times = np.arange(dt, row['Target_Tenor'] + 1e-9, dt)
@@ -118,7 +161,7 @@ for i in range(len(bootstrapping_df)):
             textposition="top center",
             showlegend=False
         ),
-        go.Scatter(x=t_range, y=df_y, name='Discount Factor', line=dict(color='blue', width=3)),
+        go.Scatter(x=t_display, y=df_y, name='Discount Factor', line=dict(color='blue', width=3)),
         go.Bar(x=pay_times, y=coupons, name='Coupon', marker_color='orange', opacity=0.7, width=0.1),
         go.Bar(x=[pay_times[-1]], y=[1.0], name='Principal', marker_color='red', opacity=0.5, width=0.15)
     ]
@@ -169,9 +212,9 @@ fig.update_xaxes(range=[0, 5.5], row=1, col=1)
 fig.update_xaxes(range=[0, 5.5], row=2, col=1)
 fig.update_xaxes(range=[0, 5.5], row=3, col=1)
 
-# Fwd Y축 % 포맷 적용
-fig.update_yaxes(tickformat=".1%", range=[0.01, 0.08], row=1, col=1)
-fig.update_yaxes(range=[0.7, 1.05], row=2, col=1)
+# Fwd Y축 % 포맷 적용 및 축 자동 조절
+fig.update_yaxes(tickformat=".1%", autorange=True, row=1, col=1)
+fig.update_yaxes(autorange=True, row=2, col=1)
 
 # Cash Flow 축 라벨 및 범위 설정
 fig.update_yaxes(title_text="이표금액", range=[0, 0.03], row=3, col=1, secondary_y=False)
@@ -183,8 +226,54 @@ fig.frames = frames
 # JavaScript 삽입: 내비게이션 및 제어 버튼
 html_content = fig.to_html(include_plotlyjs=True, full_html=True)
 
+# 시장 데이터 테이블 HTML 생성
+market_table_html = f'''
+<div class="market-data-container">
+    <table class="market-table">
+        <tr>
+            <th>만기 (Tenor)</th>
+            {''.join([f'<td>{t}Y</td>' for t in market_tenors])}
+        </tr>
+        <tr>
+            <th>시장금리 (Market Rate)</th>
+            {''.join([f'<td>{r:.4%}</td>' for r in market_rates])}
+        </tr>
+    </table>
+</div>
+'''
+
 custom_js = '''
 <style>
+    .market-data-container {
+        width: 100%;
+        display: flex;
+        justify-content: center;
+        margin-top: 20px;
+        margin-bottom: 0px;
+    }
+    .market-table {
+        border-collapse: collapse;
+        width: 70%;
+        font-family: sans-serif;
+        box-shadow: 0 0 20px rgba(0,0,0,0.1);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .market-table th, .market-table td {
+        border: 1px solid #eee;
+        padding: 12px 15px;
+        text-align: center;
+    }
+    .market-table th {
+        background-color: #f4f4f4;
+        color: #333;
+        font-weight: bold;
+        width: 20%;
+    }
+    .market-table td {
+        background-color: #ffffff;
+        font-weight: 500;
+    }
     .control-btn {
         position: fixed;
         right: 30px;
@@ -308,7 +397,8 @@ custom_js = '''
 </script>
 '''
 
-# </body> 태그 앞에 커스텀 JavaScript 삽입
+# <body> 태그 뒤에 테이블 삽입 및 </body> 태그 앞에 커스텀 JavaScript 삽입
+html_content = html_content.replace('<body>', '<body>' + market_table_html)
 html_content = html_content.replace('</body>', custom_js + '</body>')
 
 with open('irs_bootstrapping_interactive.html', 'w', encoding='utf-8') as f:
