@@ -6,8 +6,8 @@ from scipy.optimize import newton
 
 # 1. 입력 데이터 설정
 market_tenors = np.array([1, 2, 3, 5])
-market_rates = np.array([0.10, 0.15, 0.20, 0.30])
-dt = 0.25
+market_rates = np.array([0.02, 0.03, 0.04, 0.05])
+dt = 0.25  # Act/365 기준 1년을 365일로 보고 분기별 0.25년 가정
 
 def get_df(t, nodes, dfs):
     """t시점의 Discount Factor 계산 (Linear on Log DF)"""
@@ -166,11 +166,17 @@ for i in range(len(bootstrapping_df)):
         go.Bar(x=[pay_times[-1]], y=[1.0], name='Principal', marker_color='red', opacity=0.5, width=0.15)
     ]
     
+    # Y축 범위 계산
+    current_max_fwd = max(max(fwds), 0.08)
+    current_min_df = min(min(dfs), 0.7)
+
     frames.append(go.Frame(
         data=frame_traces,
         name=f"frame{i}",
         layout=go.Layout(
-            title_text=f"<b>Step {int(row['Step'])} | Iteration {int(row['Iteration'])} | fwd rate: {row['Fwd_Attempted']:.4%} | Bond Value: {row['Fixed_Bond_Value']:.6f} (error = {row['Fixed_Bond_Value']-1.0:.6f})</b>"
+            title_text=f"<b>Step {int(row['Step'])} | Iteration {int(row['Iteration'])} | fwd rate: {row['Fwd_Attempted']:.4%} | Bond Value: {row['Fixed_Bond_Value']:.6f} (error = {row['Fixed_Bond_Value']-1.0:.6f})</b>",
+            yaxis=dict(range=[0, current_max_fwd * 1.1]), # Fwd 차트
+            yaxis2=dict(range=[current_min_df * 0.95, 1.05]) # DCF 차트
         )
     ))
 
@@ -201,7 +207,7 @@ frames.insert(0, empty_frame)
 
 # 레이아웃 설정
 fig.update_layout(
-    height=1000,
+    height=800,  # 1000에서 800으로 축소
     title="<b>IRS Bootstrapping Interactive Process (Left Click: Prev, Right Click: Next)</b>",
     updatemenus=[], # Step 드롭다운 삭제
     sliders=[]      # 하단 슬라이더 삭제
@@ -212,9 +218,9 @@ fig.update_xaxes(range=[0, 5.5], row=1, col=1)
 fig.update_xaxes(range=[0, 5.5], row=2, col=1)
 fig.update_xaxes(range=[0, 5.5], row=3, col=1)
 
-# Fwd Y축 % 포맷 적용 및 축 자동 조절
-fig.update_yaxes(tickformat=".1%", autorange=True, row=1, col=1)
-fig.update_yaxes(autorange=True, row=2, col=1)
+# Fwd Y축 % 포맷 적용 및 축 범위 설정
+fig.update_yaxes(tickformat=".1%", range=[0, 0.08], row=1, col=1)
+fig.update_yaxes(range=[0.7, 1.05], row=2, col=1)
 
 # Cash Flow 축 라벨 및 범위 설정
 fig.update_yaxes(title_text="이표금액", range=[0, 0.03], row=3, col=1, secondary_y=False)
@@ -253,22 +259,23 @@ custom_js = '''
     }
     .market-table {
         border-collapse: collapse;
-        width: 70%;
+        width: 60%;
         font-family: sans-serif;
-        box-shadow: 0 0 20px rgba(0,0,0,0.1);
+        box-shadow: 0 0 15px rgba(0,0,0,0.1);
         border-radius: 8px;
         overflow: hidden;
+        font-size: 13px;
     }
     .market-table th, .market-table td {
         border: 1px solid #eee;
-        padding: 12px 15px;
+        padding: 8px 12px;
         text-align: center;
     }
     .market-table th {
         background-color: #f4f4f4;
         color: #333;
         font-weight: bold;
-        width: 20%;
+        width: 25%;
     }
     .market-table td {
         background-color: #ffffff;
@@ -276,31 +283,31 @@ custom_js = '''
     }
     .control-btn {
         position: fixed;
-        right: 30px;
-        padding: 12px 20px;
-        font-size: 16px;
+        right: 20px;
+        padding: 10px 15px;
+        font-size: 14px;
         font-weight: bold;
         color: white;
         border: none;
         border-radius: 6px;
         cursor: pointer;
         z-index: 1000;
-        width: 120px;
+        width: 100px;
         box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
     }
-    #start-btn { top: 40%; background-color: #4CAF50; }
-    #stop-btn { top: 47%; background-color: #f44336; }
-    #prev-btn { top: 54%; background-color: #2196F3; }
+    #start-btn { top: 35%; background-color: #4CAF50; }
+    #stop-btn { top: 41%; background-color: #f44336; }
+    #prev-btn { top: 47%; background-color: #2196F3; }
     .control-btn:hover { opacity: 0.8; }
     .instruction-text {
         position: fixed;
-        right: 30px;
-        top: 62%;
-        font-size: 14px;
+        right: 20px;
+        top: 54%;
+        font-size: 12px;
         color: #555;
         text-align: right;
         z-index: 1000;
-        line-height: 1.6;
+        line-height: 1.5;
         font-weight: bold;
     }
 </style>
