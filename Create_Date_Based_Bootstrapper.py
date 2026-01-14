@@ -494,7 +494,9 @@ End Sub
         # Formulas for CalcTable_IRS
         for row in range(6, calc_end_row + 1):
             ws_irs.range(f"C{row}").formula = '=CalcYF(INDEX(Common[Today],1), [@[Payment Date]], INDEX(Common[DayCount Basis],1))'
-            ws_irs.range(f"D{row}").formula = '=INDEX(Summary_IRS[Market Rate],1) * (1 / INDEX(Common[IRS Coupon Freq],1))'
+            # Expected CashFlow: Market Rate * YearFraction(Accrual Period)
+            # No=1이면 Today를 시작일로, 그 외에는 이전 행의 Payment Date를 시작일로 사용
+            ws_irs.range(f"D{row}").formula = '=INDEX(Summary_IRS[Market Rate],1) * CalcYF(IF([@No]=1, INDEX(Common[Today],1), OFFSET([@[Payment Date]],-1,0)), [@[Payment Date]], INDEX(Common[DayCount Basis],1))'
             ws_irs.range(f"E{row}").formula = '=LogLinearDF_Date([@[Payment Date]], INDEX(Common[Today],1), MarketTable[Jump Date], MarketTable[Solved Forward], INDEX(Common[DayCount Basis],1))'
             ws_irs.range(f"F{row}").formula = '=[@[Expected CashFlow]] * [@DF]'
         
